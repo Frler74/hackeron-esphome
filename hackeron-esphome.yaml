@@ -17,6 +17,8 @@ esphome:
 substitutions:
   #replace here your bluetooth mac address
   mac_akeron: "5C:02:72:30:B6:2C"
+  service_uuid: "0bd51666-e7cb-469b-8e4d-2742f1ba77cc"
+  characteristic_uuid: "E7ADD780-B042-4876-AAE1-112855353CC1"
 
 esp32:
   board: esp32dev
@@ -55,6 +57,22 @@ globals:
     type: bool
     restore_value: false
     initial_value: 'false'
+  - id: cover_position
+    type: float
+    restore_value: true
+    initial_value: '0.0'
+  - id: cover_moving
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: cover_start_time
+    type: unsigned long
+    restore_value: false
+    initial_value: '0'
+  - id: cover_direction
+    type: int
+    restore_value: false
+    initial_value: '0'  # 1 = opening, -1 = closing, 0 = stopped
 
 # Scripts for controlling scanning
 script:
@@ -172,27 +190,64 @@ switch:
     name: "Connect to Akeron Device"
 
 cover:
-  - platform: time_based
+  - platform: template
     name: "Pool Cover"
     id: pool_cover
     device_class: shutter
-    has_built_in_endstop: true
+    has_position: true
+    
+    lambda: |-
+      return id(cover_position);
     
     open_action:
+      - lambda: |-
+          id(cover_moving) = true;
+          id(cover_direction) = 1;
+          id(cover_start_time) = millis();
       - switch.turn_off: relay_closing
       - delay: 100ms
       - switch.turn_on: relay_opening
       - delay: 300ms
       - switch.turn_off: relay_opening
-    open_duration: 90s
+      - delay: !lambda 'return (id(pool_cover_open_duration).state * 1000);'
+      - lambda: |-
+          id(cover_position) = 1.0;
+          id(cover_moving) = false;
+          id(cover_direction) = 0;
     
     close_action:
+      - lambda: |-
+          id(cover_moving) = true;
+          id(cover_direction) = -1;
+          id(cover_start_time) = millis();
       - switch.turn_off: relay_opening
       - delay: 100ms
       - switch.turn_on: relay_closing
-    close_duration: 90s
+      - delay: !lambda 'return (id(pool_cover_close_duration).state * 1000);'
+      - switch.turn_off: relay_closing
+      - lambda: |-
+          id(cover_position) = 0.0;
+          id(cover_moving) = false;
+          id(cover_direction) = 0;
     
     stop_action:
+      - lambda: |-
+          // Calculate current position before stopping
+          if (id(cover_moving)) {
+            unsigned long elapsed = millis() - id(cover_start_time);
+            float duration_ms = id(cover_direction) == 1 ? 
+              (id(pool_cover_open_duration).state * 1000) : 
+              (id(pool_cover_close_duration).state * 1000);
+            float progress = elapsed / duration_ms;
+            
+            if (id(cover_direction) == 1) {
+              id(cover_position) = min(1.0f, id(cover_position) + progress * (1.0f - id(cover_position)));
+            } else {
+              id(cover_position) = max(0.0f, id(cover_position) - progress * id(cover_position));
+            }
+          }
+          id(cover_moving) = false;
+          id(cover_direction) = 0;
       - switch.turn_off: relay_opening
       - switch.turn_off: relay_closing
       - delay: 100ms
@@ -227,6 +282,30 @@ text_sensor:
 
 # Automation to start scanning on boot
 interval:
+  - interval: 500ms
+    then:
+      - if:
+          condition:
+            lambda: 'return id(cover_moving);'
+          then:
+            - lambda: |-
+                unsigned long elapsed = millis() - id(cover_start_time);
+                float duration_ms = id(cover_direction) == 1 ? 
+                  (id(pool_cover_open_duration).state * 1000) : 
+                  (id(pool_cover_close_duration).state * 1000);
+                float progress = min(1.0f, elapsed / duration_ms);
+                
+                if (id(cover_direction) == 1) {
+                  // Opening: progress from current position to 1.0
+                  float start_pos = id(cover_position);
+                  id(cover_position) = start_pos + progress * (1.0f - start_pos);
+                } else if (id(cover_direction) == -1) {
+                  // Closing: progress from current position to 0.0
+                  float start_pos = id(cover_position);
+                  id(cover_position) = start_pos - progress * start_pos;
+                }
+                id(pool_cover).publish_state();
+
   - interval: 60s
     then:
       - if:
@@ -247,29 +326,29 @@ interval:
             - lambda: 'ESP_LOGD("data_request", "BLE Data Request");'
             #trame M 10
             - ble_client.ble_write:
-                service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
-                characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
+                service_uuid: ${service_uuid}
+                characteristic_uuid: ${characteristic_uuid}
                 value: [ 42, 82, 63, 77, 10, 42]
 
             - delay: 5s
             #trame S 83
             - ble_client.ble_write:
-                service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
-                characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
+                service_uuid: ${service_uuid}
+                characteristic_uuid: ${characteristic_uuid}
                 value: [ 42, 82, 63, 83, 20, 42]
 
             - delay: 5s
             #trame A 65
             - ble_client.ble_write:
-                service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
-                characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
+                service_uuid: ${service_uuid}
+                characteristic_uuid: ${characteristic_uuid}
                 value: [ 42, 82, 63, 65, 6, 42]
 
             - delay: 5s
             #trame E 69
             - ble_client.ble_write:
-                service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
-                characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
+                service_uuid: ${service_uuid}
+                characteristic_uuid: ${characteristic_uuid}
                 value: !lambda |- 
                   std::vector<unsigned char> result { 42,82,63,69,255,42 };
                   //calcul CRC
@@ -449,8 +528,8 @@ sensor:
 
 #    state_class: measurement
     name: "akeron_data"
-    service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
-    characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
+    service_uuid: ${service_uuid}
+    characteristic_uuid: ${characteristic_uuid}
     notify: true
     lambda: |-
       std::string value2(x.begin(), x.end());
@@ -633,6 +712,32 @@ sensor:
 #    id: akeron_ph_setpoint
 number:
   - platform: template
+    name: 'Pool Cover Open Duration'
+    id: pool_cover_open_duration
+    max_value: 300
+    min_value: 10
+    initial_value: 90
+    unit_of_measurement: 's'
+    step: 5
+    mode: box
+    optimistic: true
+    restore_value: true
+    icon: "mdi:timer-outline"
+
+  - platform: template
+    name: 'Pool Cover Close Duration'
+    id: pool_cover_close_duration
+    max_value: 300
+    min_value: 10
+    initial_value: 90
+    unit_of_measurement: 's'
+    step: 5
+    mode: box
+    optimistic: true
+    restore_value: true
+    icon: "mdi:timer-outline"
+
+  - platform: template
     name: 'Akeron PH Set'
     id: akeron_ph_setpoint_number
     max_value: 7.8
@@ -648,8 +753,8 @@ number:
             ESP_LOGI("akeron send", "Sending Value PH set point on Akeron");
     
         - ble_client.ble_write:
-            service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
-            characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
+            service_uuid: ${service_uuid}
+            characteristic_uuid: ${characteristic_uuid}
             #value: [ 42, 82, 63, 77, 10, 42]
             value: !lambda |- 
               int consigneTmp = round(x * 100.0);
@@ -670,8 +775,8 @@ number:
         - delay: 3s
         #trame S
         - ble_client.ble_write:
-            service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
-            characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
+            service_uuid: ${service_uuid}
+            characteristic_uuid: ${characteristic_uuid}
             value: [ 42, 82, 63, 83, 20, 42]
     
   - platform: template
@@ -691,8 +796,8 @@ number:
             ESP_LOGI("akeron send", "Sending Value ELX set point on Akeron");
     
         - ble_client.ble_write:
-            service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
-            characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
+            service_uuid: ${service_uuid}
+            characteristic_uuid: ${characteristic_uuid}
             value: !lambda |- 
               uint8_t val2 = x;
 
@@ -710,8 +815,8 @@ number:
         - delay: 3s
         #trame A
         - ble_client.ble_write:
-            service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
-            characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
+            service_uuid: ${service_uuid}
+            characteristic_uuid: ${characteristic_uuid}
             value: [ 42, 82, 63, 65, 6, 42]
 
   - platform: template
@@ -730,8 +835,8 @@ number:
             ESP_LOGI("akeron send", "Sending Value REDOX set point on Akeron");
     
         - ble_client.ble_write:
-            service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
-            characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
+            service_uuid: ${service_uuid}
+            characteristic_uuid: ${characteristic_uuid}
             value: !lambda |- 
 
               int val = x;
@@ -752,8 +857,8 @@ number:
         - delay: 3s
         #trame E
         - ble_client.ble_write:
-            service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
-            characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
+            service_uuid: ${service_uuid}
+            characteristic_uuid: ${characteristic_uuid}
             value: !lambda |- 
               std::vector<unsigned char> result { 42,82,63,69,255,42 };
               //calcul CRC
