@@ -326,18 +326,18 @@ sensor:
     icon: "mdi:ph"
     accuracy_decimals: 2
     device_class: ph
-    state_class: "measurement"
-    filters:
-      - filter_out: nan
-      - clamp:
-          min_value: 0
-          max_value: 14
-      - sliding_window_moving_average:
-          window_size: 5
-          send_every: 1
-      - or:
-        - throttle: 90s
-        - delta: 0.1
+    # state_class: "measurement"
+    # filters:
+    #   - filter_out: nan
+    #   - clamp:
+    #       min_value: 0
+    #       max_value: 14
+    #   - sliding_window_moving_average:
+    #       window_size: 5
+    #       send_every: 1
+    #   - or:
+    #     - throttle: 90s
+    #     - delta: 0.1
   
   - platform: template
     name: "Akeron Redox"
@@ -346,7 +346,7 @@ sensor:
     icon: "mdi:alpha-r-box-outline"
     accuracy_decimals: 0
     device_class: voltage
-    state_class: "measurement"
+    # state_class: "measurement"
 
   - platform: template
     name: "Akeron Water Temperature"
@@ -354,22 +354,22 @@ sensor:
     unit_of_measurement: "°C"
     icon: "mdi:thermometer"
     device_class: "temperature"
-    state_class: "measurement"
+    # state_class: "measurement"
     accuracy_decimals: 2
-    filters:
-      # Ignore les valeurs aberrantes (pics > 40°C ou < 0°C)
-      - filter_out: nan
-      - clamp:
-          min_value: 0
-          max_value: 40
-      # Lisse les variations brusques sur 5 mesures (150s = 5 x 30s)
-      - sliding_window_moving_average:
-          window_size: 5
-          send_every: 1
-      # Throttle pour éviter trop de mises à jour - envoie seulement si changement > 0.5°C
-      - or:
-        - throttle: 90s
-        - delta: 0.5
+    # filters:
+    #   # Ignore les valeurs aberrantes (pics > 40°C ou < 0°C)
+    #   - filter_out: nan
+    #   - clamp:
+    #       min_value: 0
+    #       max_value: 40
+    #   # Lisse les variations brusques sur 5 mesures (150s = 5 x 30s)
+    #   - sliding_window_moving_average:
+    #       window_size: 5
+    #       send_every: 1
+    #   # Throttle pour éviter trop de mises à jour - envoie seulement si changement > 0.5°C
+    #   - or:
+    #     - throttle: 90s
+    #     - delta: 0.5
 
   - platform: template
     name: "Akeron Salt"
@@ -377,19 +377,19 @@ sensor:
     unit_of_measurement: "g"
     icon: "mdi:alpha-s-box-outline"
     device_class: "weight"
-    state_class: "measurement"
+    # state_class: "measurement"
     accuracy_decimals: 2
-    filters:
-      - filter_out: nan
-      - clamp:
-          min_value: 0
-          max_value: 15
-      - sliding_window_moving_average:
-          window_size: 5
-          send_every: 1
-      - or:
-        - throttle: 90s
-        - delta: 0.1
+    # filters:
+    #   - filter_out: nan
+    #   - clamp:
+    #       min_value: 0
+    #       max_value: 15
+    #   - sliding_window_moving_average:
+    #       window_size: 5
+    #       send_every: 1
+    #   - or:
+    #     - throttle: 90s
+    #     - delta: 0.1
 
   - platform: template
     name: "Akeron Alarm"
@@ -431,7 +431,7 @@ sensor:
     icon: "mdi:electron-framework"
     unit_of_measurement: "%"
     device_class: ""
-    state_class: "measurement"
+    # state_class: "measurement"
     accuracy_decimals: 0
 
   - platform: template
@@ -439,7 +439,7 @@ sensor:
     id: akeron_boost_time
     unit_of_measurement: "s"
     device_class: ""
-    state_class: "measurement"
+    # state_class: "measurement"
     accuracy_decimals: 0
 
   - platform: ble_client
