@@ -15,10 +15,8 @@ esphome:
       - script.execute: start_scanning
 
 substitutions:
-  #replace here your bluetooh mac address
-  mac_akeron: "B4:E3:F9:65:71:74"
-  service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
-  characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
+  #replace here your bluetooth mac address
+  mac_akeron: "5C:02:72:30:B6:2C"
 
 esp32:
   board: esp32dev
@@ -74,22 +72,6 @@ script:
     then:
       - logger.log: "Stopping BLE scan..."
       - esp32_ble_tracker.stop_scan:
-
-  - id: opening_pulse
-    mode: restart
-    then:
-      - switch.turn_off: relay_closing
-      - switch.turn_on: relay_opening
-      - delay: 300ms
-      - switch.turn_off: relay_opening
-
-  - id: closing_hold_90s
-    mode: restart
-    then:
-      - switch.turn_off: relay_opening
-      - switch.turn_on: relay_closing
-      - delay: 90s
-      - switch.turn_off: relay_closing
 
 
 esp32_ble_tracker:
@@ -189,22 +171,28 @@ switch:
     ble_client_id: akeron
     name: "Connect to Akeron Device"
 
-button:
-  - platform: template
-    name: "Mode 1 - Opening Pulse"
-    on_press:
-      - script.execute: opening_pulse
-
-  - platform: template
-    name: "Mode 2 - Closing Hold (90s)"
-    on_press:
-      - script.execute: closing_hold_90s
-
-  - platform: template
-    name: "Stop"
-    on_press:
-      - script.stop: opening_pulse
-      - script.stop: closing_hold_90s
+cover:
+  - platform: time_based
+    name: "Pool Cover"
+    id: pool_cover
+    device_class: shutter
+    has_built_in_endstop: true
+    
+    open_action:
+      - switch.turn_off: relay_closing
+      - delay: 100ms
+      - switch.turn_on: relay_opening
+      - delay: 300ms
+      - switch.turn_off: relay_opening
+    open_duration: 90s
+    
+    close_action:
+      - switch.turn_off: relay_opening
+      - delay: 100ms
+      - switch.turn_on: relay_closing
+    close_duration: 90s
+    
+    stop_action:
       - switch.turn_off: relay_opening
       - switch.turn_off: relay_closing
       - delay: 100ms
@@ -259,29 +247,29 @@ interval:
             - lambda: 'ESP_LOGD("data_request", "BLE Data Request");'
             #trame M 10
             - ble_client.ble_write:
-                service_uuid: ${service_uuid}
-                characteristic_uuid: ${characteristic_uuid}
+                service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
+                characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
                 value: [ 42, 82, 63, 77, 10, 42]
 
             - delay: 5s
             #trame S 83
             - ble_client.ble_write:
-                service_uuid: ${service_uuid}
-                characteristic_uuid: ${characteristic_uuid}
+                service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
+                characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
                 value: [ 42, 82, 63, 83, 20, 42]
 
             - delay: 5s
             #trame A 65
             - ble_client.ble_write:
-                service_uuid: ${service_uuid}
-                characteristic_uuid: ${characteristic_uuid}
+                service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
+                characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
                 value: [ 42, 82, 63, 65, 6, 42]
 
             - delay: 5s
             #trame E 69
             - ble_client.ble_write:
-                service_uuid: ${service_uuid}
-                characteristic_uuid: ${characteristic_uuid}
+                service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
+                characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
                 value: !lambda |- 
                   std::vector<unsigned char> result { 42,82,63,69,255,42 };
                   //calcul CRC
@@ -461,8 +449,8 @@ sensor:
 
 #    state_class: measurement
     name: "akeron_data"
-    service_uuid: ${service_uuid}
-    characteristic_uuid: ${characteristic_uuid}
+    service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
+    characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
     notify: true
     lambda: |-
       std::string value2(x.begin(), x.end());
@@ -660,8 +648,8 @@ number:
             ESP_LOGI("akeron send", "Sending Value PH set point on Akeron");
     
         - ble_client.ble_write:
-            service_uuid: ${service_uuid}
-            characteristic_uuid: ${characteristic_uuid}
+            service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
+            characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
             #value: [ 42, 82, 63, 77, 10, 42]
             value: !lambda |- 
               int consigneTmp = round(x * 100.0);
@@ -682,8 +670,8 @@ number:
         - delay: 3s
         #trame S
         - ble_client.ble_write:
-            service_uuid: ${service_uuid}
-            characteristic_uuid: ${characteristic_uuid}
+            service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
+            characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
             value: [ 42, 82, 63, 83, 20, 42]
     
   - platform: template
@@ -703,8 +691,8 @@ number:
             ESP_LOGI("akeron send", "Sending Value ELX set point on Akeron");
     
         - ble_client.ble_write:
-            service_uuid: ${service_uuid}
-            characteristic_uuid: ${characteristic_uuid}
+            service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
+            characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
             value: !lambda |- 
               uint8_t val2 = x;
 
@@ -722,8 +710,8 @@ number:
         - delay: 3s
         #trame A
         - ble_client.ble_write:
-            service_uuid: ${service_uuid}
-            characteristic_uuid: ${characteristic_uuid}
+            service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
+            characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
             value: [ 42, 82, 63, 65, 6, 42]
 
   - platform: template
@@ -742,8 +730,8 @@ number:
             ESP_LOGI("akeron send", "Sending Value REDOX set point on Akeron");
     
         - ble_client.ble_write:
-            service_uuid: ${service_uuid}
-            characteristic_uuid: ${characteristic_uuid}
+            service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
+            characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
             value: !lambda |- 
 
               int val = x;
@@ -764,8 +752,8 @@ number:
         - delay: 3s
         #trame E
         - ble_client.ble_write:
-            service_uuid: ${service_uuid}
-            characteristic_uuid: ${characteristic_uuid}
+            service_uuid: '0bd51666-e7cb-469b-8e4d-2742f1ba77cc'
+            characteristic_uuid: 'E7ADD780-B042-4876-AAE1-112855353CC1'
             value: !lambda |- 
               std::vector<unsigned char> result { 42,82,63,69,255,42 };
               //calcul CRC
