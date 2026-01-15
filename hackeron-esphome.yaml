@@ -160,16 +160,22 @@ ble_client:
 
 switch:
   - platform: gpio
-    pin: GPIO4
+    pin: GPIO22
     id: relay_opening
-    name: "Relay Opening"
+    name: "Pool Cover Opening"
     restore_mode: ALWAYS_OFF
 
   - platform: gpio
-    pin: GPIO16
+    pin: GPIO23
     id: relay_closing
-    name: "Relay Closing"
+    name: "Pool Cover Closing"
     restore_mode: ALWAYS_OFF
+
+  - platform: gpio
+    pin: GPIO4
+    id: pool_pump
+    name: "Pool Pump"
+    restore_mode: RESTORE_DEFAULT_OFF
 
   - platform: template
     name: "BLE Scanner"
@@ -189,13 +195,25 @@ switch:
     ble_client_id: akeron
     name: "Connect to Akeron Device"
 
+light:
+  - platform: binary
+    name: "Pool Light"
+    id: pool_light
+    output: pool_light_output
+    restore_mode: RESTORE_DEFAULT_OFF
+
+output:
+  - platform: gpio
+    pin: GPIO5
+    id: pool_light_output
+
+
 cover:
   - platform: template
     name: "Pool Cover"
     id: pool_cover
     device_class: shutter
     has_position: true
-    
     lambda: |-
       return id(cover_position);
     
@@ -221,6 +239,10 @@ cover:
           id(cover_direction) = -1;
           id(cover_start_time) = millis();
       - switch.turn_off: relay_opening
+      - delay: 100ms
+      - switch.turn_on: relay_closing
+      - delay: 100ms
+      - switch.turn_off: relay_closing
       - delay: 100ms
       - switch.turn_on: relay_closing
       - delay: !lambda 'return (id(pool_cover_close_duration).state * 1000);'
@@ -299,10 +321,28 @@ interval:
                   // Opening: progress from current position to 1.0
                   float start_pos = id(cover_position);
                   id(cover_position) = start_pos + progress * (1.0f - start_pos);
+                  
+                  // Arrêter automatiquement en fin de course d'ouverture
+                  if (progress >= 1.0f) {
+                    id(cover_position) = 1.0;
+                    id(cover_moving) = false;
+                    id(cover_direction) = 0;
+                    id(relay_opening)->turn_off();
+                    ESP_LOGD("pool_cover", "Opening completed - stopping relay");
+                  }
                 } else if (id(cover_direction) == -1) {
                   // Closing: progress from current position to 0.0
                   float start_pos = id(cover_position);
                   id(cover_position) = start_pos - progress * start_pos;
+                  
+                  // Arrêter automatiquement en fin de course de fermeture
+                  if (progress >= 1.0f) {
+                    id(cover_position) = 0.0;
+                    id(cover_moving) = false;
+                    id(cover_direction) = 0;
+                    id(relay_closing)->turn_off();
+                    ESP_LOGD("pool_cover", "Closing completed - stopping relay");
+                  }
                 }
                 id(pool_cover).publish_state();
 
@@ -361,6 +401,61 @@ interval:
                   return result;
 
 binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO13
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    name: "Pool Cover Contact"
+    id: pool_cover_contact
+    device_class: opening
+    on_press:
+      then:
+        - lambda: |-
+            ESP_LOGD("pool_cover", "Physical switch turned to OPEN - Starting opening tracking");
+            // La clef active directement le moteur, on track juste le mouvement
+            if (id(cover_position) < 1.0) {
+              id(cover_moving) = true;
+              id(cover_direction) = 1;
+              id(cover_start_time) = millis();
+            }
+    on_release:
+      then:
+        - lambda: |-
+            ESP_LOGD("pool_cover", "Physical switch turned to CLOSE - Stopping and preparing for closing");
+            // Arrêter le tracking du mouvement en cours
+            if (id(cover_moving)) {
+              // Calculer la position actuelle
+              unsigned long elapsed = millis() - id(cover_start_time);
+              float duration_ms = id(cover_direction) == 1 ? 
+                (id(pool_cover_open_duration).state * 1000) : 
+                (id(pool_cover_close_duration).state * 1000);
+              float progress = elapsed / duration_ms;
+              
+              if (id(cover_direction) == 1) {
+                id(cover_position) = min(1.0f, id(cover_position) + progress * (1.0f - id(cover_position)));
+              } else if (id(cover_direction) == -1) {
+                id(cover_position) = max(0.0f, id(cover_position) - progress * id(cover_position));
+              }
+              
+              id(cover_moving) = false;
+              id(cover_direction) = 0;
+              id(pool_cover).publish_state();
+            }
+            
+            // Attendre un peu que l'utilisateur remette la clef sur neutre puis sur close
+            delay(1000);
+            
+            // Démarrer le tracking de la fermeture
+            if (id(cover_position) > 0.0) {
+              id(cover_moving) = true;
+              id(cover_direction) = -1;
+              id(cover_start_time) = millis();
+              ESP_LOGD("pool_cover", "Starting closing tracking");
+            }
+
   - platform: template
     name: "Akeron Flow Switch"
     id: akeron_flow_switch
@@ -398,6 +493,26 @@ binary_sensor:
             id(akeron_found) = false;
 
 sensor:
+  - platform: adc
+    pin: GPIO32
+    name: "Moisture Sensor Raw"
+    id: moisture_sensor_raw
+    update_interval: 60s
+    
+
+  - platform: template
+    name: "Moisture Sensor"
+    id: moisture_sensor
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    icon: "mdi:water-percent"
+    lambda: |-
+      float raw = id(moisture_sensor_raw).state;
+      float ref = id(moisture_reference_value).state;
+      float moisture = (ref - raw) * 100.0 / ref;
+      return max(0.0f, min(100.0f, moisture));
+    update_interval: 60s
+
   - platform: template
     name: "Akeron PH"
     id: akeron_ph
@@ -711,6 +826,18 @@ sensor:
 #  name: "Akeron PH Setpoint"
 #    id: akeron_ph_setpoint
 number:
+  - platform: template
+    name: 'Moisture Reference Value'
+    id: moisture_reference_value
+    max_value: 4095
+    min_value: 1000
+    initial_value: 3700
+    step: 50
+    mode: box
+    optimistic: true
+    restore_value: true
+    icon: "mdi:water-percent"
+
   - platform: template
     name: 'Pool Cover Open Duration'
     id: pool_cover_open_duration
