@@ -73,6 +73,10 @@ globals:
     type: int
     restore_value: false
     initial_value: '0'  # 1 = opening, -1 = closing, 0 = stopped
+  - id: cover_start_position
+    type: float
+    restore_value: false
+    initial_value: '0.0'
 
 # Scripts for controlling scanning
 script:
@@ -222,6 +226,7 @@ cover:
           id(cover_moving) = true;
           id(cover_direction) = 1;
           id(cover_start_time) = millis();
+          id(cover_start_position) = id(cover_position);
       - switch.turn_off: relay_closing
       - delay: 100ms
       - switch.turn_on: relay_opening
@@ -238,6 +243,7 @@ cover:
           id(cover_moving) = true;
           id(cover_direction) = -1;
           id(cover_start_time) = millis();
+          id(cover_start_position) = id(cover_position);
       - switch.turn_off: relay_opening
       - delay: 100ms
       - switch.turn_on: relay_closing
@@ -276,6 +282,66 @@ cover:
       - switch.turn_on: relay_closing
       - delay: 300ms
       - switch.turn_off: relay_closing
+    
+    position_action:
+      - lambda: |-
+          float target_position = pos;
+          float current_position = id(cover_position);
+          
+          ESP_LOGD("pool_cover", "Position action - Current: %.2f, Target: %.2f", current_position, target_position);
+          
+          if (abs(target_position - current_position) < 0.01) {
+            // Already at target position
+            ESP_LOGD("pool_cover", "Already at target position");
+            return;
+          }
+          
+          id(cover_start_position) = current_position;
+          id(cover_start_time) = millis();
+          
+          if (target_position > current_position) {
+            // Need to open
+            id(cover_direction) = 1;
+            id(cover_moving) = true;
+            float distance = target_position - current_position;
+            float duration_ms = id(pool_cover_open_duration).state * 1000 * distance;
+            
+            ESP_LOGD("pool_cover", "Opening for %.0f ms to reach %.2f", duration_ms, target_position);
+            
+            id(relay_closing)->turn_off();
+            delay(100);
+            id(relay_opening)->turn_on();
+            delay(300);
+            id(relay_opening)->turn_off();
+            delay(duration_ms);
+            
+            id(cover_position) = target_position;
+            id(cover_moving) = false;
+            id(cover_direction) = 0;
+          } else {
+            // Need to close
+            id(cover_direction) = -1;
+            id(cover_moving) = true;
+            float distance = current_position - target_position;
+            float duration_ms = id(pool_cover_close_duration).state * 1000 * distance;
+            
+            ESP_LOGD("pool_cover", "Closing for %.0f ms to reach %.2f", duration_ms, target_position);
+            
+            id(relay_opening)->turn_off();
+            delay(100);
+            id(relay_closing)->turn_on();
+            delay(100);
+            id(relay_closing)->turn_off();
+            delay(100);
+            id(relay_closing)->turn_on();
+            delay(duration_ms);
+            id(relay_closing)->turn_off();
+            
+            id(cover_position) = target_position;
+            id(cover_moving) = false;
+            id(cover_direction) = 0;
+          }
+          id(pool_cover).publish_state();
 
 # Text sensors for device info
 text_sensor:
@@ -319,8 +385,9 @@ interval:
                 
                 if (id(cover_direction) == 1) {
                   // Opening: progress from current position to 1.0
-                  float start_pos = id(cover_position);
+                  float start_pos = id(cover_start_position);
                   id(cover_position) = start_pos + progress * (1.0f - start_pos);
+                  ESP_LOGD("pool_cover", "Opening - Position: %.2f (progress: %.2f)", id(cover_position), progress);
                   
                   // Arrêter automatiquement en fin de course d'ouverture
                   if (progress >= 1.0f) {
@@ -332,8 +399,9 @@ interval:
                   }
                 } else if (id(cover_direction) == -1) {
                   // Closing: progress from current position to 0.0
-                  float start_pos = id(cover_position);
+                  float start_pos = id(cover_start_position);
                   id(cover_position) = start_pos - progress * start_pos;
+                  ESP_LOGD("pool_cover", "Closing - Position: %.2f (progress: %.2f)", id(cover_position), progress);
                   
                   // Arrêter automatiquement en fin de course de fermeture
                   if (progress >= 1.0f) {
@@ -420,6 +488,7 @@ binary_sensor:
               id(cover_moving) = true;
               id(cover_direction) = 1;
               id(cover_start_time) = millis();
+              id(cover_start_position) = id(cover_position);
             }
     on_release:
       then:
@@ -453,6 +522,7 @@ binary_sensor:
               id(cover_moving) = true;
               id(cover_direction) = -1;
               id(cover_start_time) = millis();
+              id(cover_start_position) = id(cover_position);
               ESP_LOGD("pool_cover", "Starting closing tracking");
             }
 
